@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BookNest</title>
+<meta name="theme-color" content="#0B132B">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H19"/><path d="M9 7h6"/></svg></div>
+  <div class="kicker">Library Management</div>
+  <h1>BookNest</h1>
+  <p>Books, seats and attendance — all in one place</p>
+  <div class="header-row">
+    <div class="sync" id="syncStatus"><span class="pulse-dot"></span><span class="label">Connecting…</span></div>
+    <button class="staff-btn" id="staffBtn" hidden>Staff login</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
+  <button class="tab-btn" data-tab="books"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H19"/></svg>Books</button>
+  <button class="tab-btn" data-tab="seats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11V7a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v4"/><path d="M3 13a2 2 0 0 1 4 0v2h10v-2a2 2 0 0 1 4 0v5H3z"/><path d="M6 18v2M18 18v2"/></svg>Seating</button>
+  <button class="tab-btn" data-tab="attendance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Attendance</button>
+  <button class="tab-btn" data-tab="lostfound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Lost &amp; Found</button>
+</div>
+
+<main>
+
+  <!-- OVERVIEW -->
+  <section id="overview" class="active">
+    <div class="panel-head"><h2>Today at a glance</h2></div>
+    <div class="hero-stats">
+      <div class="hero-stat"><div class="num" id="ovBooks">0</div><div class="lab">Books available</div></div>
+      <div class="hero-stat"><div class="num" id="ovSeats">0</div><div class="lab">Seats free</div></div>
+      <div class="hero-stat"><div class="num" id="ovAtt">0</div><div class="lab">Checked in today</div></div>
+    </div>
+    <hr class="rule">
+
+    <div class="section-head">
+      <h3>Notice board</h3>
+      <button class="add-toggle staff-only" id="showAddNotice">+ Post a notice</button>
+    </div>
+    <div class="add-form staff-only" id="addNoticeForm">
+      <input type="text" id="noticeTitle" maxlength="80" placeholder="Notice title">
+      <input type="text" id="noticeText" maxlength="300" placeholder="Message (optional)">
+      <button class="btn" id="addNoticeBtn">Post</button>
+    </div>
+    <div id="noticeList"></div>
+    <div id="noticeEmpty" class="empty" style="display:none;">No notices right now.</div>
+
+    <hr class="rule">
+    <h3 style="font-size:1.05rem;margin-bottom:6px;">Recent activity</h3>
+    <div id="activityList"></div>
+    <div id="activityEmpty" class="empty" style="display:none;">Nothing has happened yet today. Check a book out, take a seat, or mark attendance to see it here.</div>
+  </section>
+
+  <!-- BOOKS -->
+  <section id="books">
+    <div class="panel-head">
+      <h2>Catalogue</h2>
+      <span class="count-tag" id="bookCount">0 titles</span>
+    </div>
+    <div class="toolbar">
+      <input type="text" id="bookSearch" placeholder="Search books…">
+      <select id="bookFilter">
+        <option value="all">All</option>
+        <option value="available">Available</option>
+        <option value="out">Checked out</option>
+        <option value="late">Overdue</option>
+      </select>
+      <select id="bookCategory"><option value="all">All categories</option></select>
+      <select id="bookSort">
+        <option value="title">Sort: title</option>
+        <option value="author">Sort: author</option>
+        <option value="category">Sort: category</option>
+        <option value="status">Sort: status</option>
+      </select>
+    </div>
+    <button class="add-toggle staff-only" id="showAddBook">+ Add a title to the catalogue</button>
+    <div class="add-form staff-only" id="addBookForm">
+      <input type="text" id="newTitle" placeholder="Title">
+      <input type="text" id="newAuthor" placeholder="Author">
+      <input type="text" id="newCategory" list="categoryOptions" placeholder="Category">
+      <input type="text" id="newShelf" placeholder="Shelf">
+      <button class="btn" id="addBookBtn">Add book</button>
+    </div>
+    <datalist id="categoryOptions"></datalist>
+    <div id="bookList"></div>
+  </section>
+
+  <!-- SEATS -->
+  <section id="seats">
+    <div class="panel-head">
+      <h2>Seating chart</h2>
+      <span class="count-tag" id="seatCount">0 / 0 free</span>
+    </div>
+    <div class="seat-legend">
+      <span><span class="dot" style="background:var(--card);border:1px solid var(--line)"></span> Available</span>
+      <span><span class="dot" style="background:var(--brass-light)"></span> Reserved — timer running</span>
+      <span><span class="dot" style="background:var(--sage)"></span> Occupied — quiet zone</span>
+      <span><span class="dot" style="background:var(--green)"></span> Occupied — group tables</span>
+    </div>
+    <div class="zone-label">Quiet zone (1–50)</div>
+    <div class="seat-grid" id="seatGridQuiet"></div>
+    <div class="zone-label">Group tables (51–100)</div>
+    <div class="seat-grid" id="seatGridGroup"></div>
+    <div class="seat-tools">
+      <button class="add-toggle" id="scanCheckinBtn">Scan to check in</button>
+      <button class="add-toggle staff-only" id="showQrCodes">Print seat QR codes</button>
+    </div>
+  </section>
+
+  <!-- ATTENDANCE -->
+  <section id="attendance">
+    <div class="panel-head">
+      <h2>Attendance</h2>
+      <span class="count-tag" id="attCount">0 today</span>
+    </div>
+
+    <div class="att-form staff-only">
+      <input type="text" id="attName" placeholder="Visitor name">
+      <select id="attSeat"></select>
+      <button class="btn" id="checkInBtn">Mark present</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Seat</th><th>Time in</th><th></th></tr>
+      </thead>
+      <tbody id="attBody"></tbody>
+    </table>
+    <div id="attEmpty" class="empty" style="display:none;margin-top:10px;">No one has checked in yet today.</div>
+  </section>
+
+  <!-- LOST & FOUND -->
+  <section id="lostfound">
+    <div class="panel-head">
+      <h2>Lost &amp; Found</h2>
+      <span class="count-tag" id="lfCount">0 open</span>
+    </div>
+
+    <p style="font-size:.85rem;color:var(--muted);margin:-4px 0 14px;">Lost something? Write your name and what you lost below, and staff will keep an eye out.</p>
+
+    <div class="att-form">
+      <input type="text" id="lfName" placeholder="Your name">
+      <input type="text" id="lfItem" placeholder="What did you lose?">
+      <input type="text" id="lfDetails" placeholder="Details — colour, where you left it… (optional)">
+      <button class="btn" id="lfReportBtn">Report lost item</button>
+    </div>
+
+    <div id="lfList"></div>
+    <div id="lfEmpty" class="empty" style="display:none;">Nothing reported yet. If you've lost something, use the form above.</div>
+  </section>
+
+  <p class="shared-note">Everything here is shared live — changes made on any device appear for everyone within a few seconds. Only library staff can edit; use <strong>Staff login</strong> at the top to sign in.</p>
+</main>
+
+<!-- seat modal -->
+<div class="modal-overlay" id="seatModalOverlay">
+  <div class="modal">
+    <h3 id="seatModalTitle">Seat</h3>
+    <p class="sub" id="seatModalSub"></p>
+    <div id="seatModalBody"></div>
+    <div class="row" id="seatModalActions"></div>
+  </div>
+</div>
+
+<!-- generic pop-up form (staff login, editing a book) -->
+<div class="modal-overlay" id="formModalOverlay">
+  <div class="modal">
+    <h3 id="fmTitle"></h3>
+    <p class="sub" id="fmSub"></p>
+    <div id="fmBody"></div>
+    <p class="form-error" id="fmError" style="display:none;"></p>
+    <div class="row" id="fmActions"></div>
+  </div>
+</div>
+
+<!-- book checkout/return modal -->
+<div class="modal-overlay" id="bookModalOverlay">
+  <div class="modal">
+    <h3 id="bookModalTitle">Book</h3>
+    <p class="sub" id="bookModalSub"></p>
+    <div id="bookModalBody"></div>
+    <div class="row" id="bookModalActions"></div>
+  </div>
+</div>
+
+<!-- printable sheet of every seat's QR code -->
+<div class="modal-overlay" id="qrCodesOverlay">
+  <div class="modal qr-modal">
+    <h3>Seat QR codes</h3>
+    <p class="sub">Print this and tape one code to each seat or table — visitors scan it to confirm a hold.</p>
+    <div id="qrCodesGrid" class="qr-grid"></div>
+    <div class="row">
+      <button class="btn ghost" id="qrCodesClose">Close</button>
+      <button class="btn" id="qrCodesPrint">Print</button>
+    </div>
+  </div>
+</div>
+
+<!-- camera scanner used to confirm arrival at a held seat -->
+<div class="modal-overlay" id="qrScannerOverlay">
+  <div class="modal">
+    <h3>Scan seat QR code</h3>
+    <p class="sub" id="scanSub">Point the camera at the code taped to seat <span id="scanSeatNum"></span>.</p>
+    <video id="scanVideo" playsinline muted></video>
+    <canvas id="scanCanvas" style="display:none;"></canvas>
+    <p class="scan-status" id="scanStatus"></p>
+    <div class="row">
+      <button class="btn ghost" id="scanCancel">Cancel</button>
+      <button class="btn ghost" id="scanManual">Confirm manually instead</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="config.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

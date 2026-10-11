@@ -52,7 +52,7 @@ grant select on public.booknest_data to anon;
 -- ---------- staff password (stored hashed, never in plain text) ----------
 do $$
 declare
-  pw text := 'PUT-YOUR-PASSWORD-HERE';
+  pw text := 'MyLibrary@2026!';
 begin
   if pw = 'PUT-YOUR-PASSWORD-HERE' or length(pw) < 8 then
     raise exception 'Edit this script first: replace PUT-YOUR-PASSWORD-HERE with your own staff password (at least 8 characters).';

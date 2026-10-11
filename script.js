@@ -2,8 +2,9 @@
    BookNest — app logic
    Data lives in a free Supabase database, so every device sees the
    same books, seats, attendance and lost & found in near real time.
-   Visitors can look around; staff sign in with a password to make
-   changes.
+   Visitors can look around; members log in to book a seat; staff
+   sign in with a password to make changes.
+   (Member screens: member.js · Admin screens: admin.js)
    Changes are versioned: if two people save at the same moment,
    the second one is asked to try again instead of overwriting.
    ============================================================ */
@@ -26,7 +27,8 @@ const KEYS = ['books','seats','attendance','activity','lostFound','notices'];   
 const versions = {};      // last version we saw on the server, per collection
 const epochs = {};        // bumped on conflict so stale queued saves are dropped
 const saveQueue = {};     // saves are sent one at a time per collection
-let pendingSaves = 0;
+let pendingSaves = 0;     // saves currently being sent
+let queuedSaves = 0;      // saves waiting to be sent OR being sent (counted from the moment of the edit)
 let silentSave = false;   // true for automatic saves (e.g. expiring reservations)
 let lastServerVersions = {};
 
@@ -86,8 +88,11 @@ function saveJSON(key, value){
   const silent = silentSave;
   const body = JSON.stringify(value);
   const epoch = epochs[key] || 0;
+  queuedSaves++;           // from now until it is sent, don't let a refresh overwrite this edit
   saveQueue[key] = (saveQueue[key] || Promise.resolve())
-    .then(() => (epochs[key] || 0) === epoch ? pushKey(key, body, silent) : null);
+    .then(() => (epochs[key] || 0) === epoch ? pushKey(key, body, silent) : null)
+    .catch(() => {})       // never let one failed save block the saves after it
+    .then(() => { queuedSaves--; });
 }
 
 async function pushKey(key, body, silent){
@@ -130,7 +135,7 @@ function afterRemoteChange(changedKeys){
 
 async function syncFromServer(){
   if(!CONFIGURED){ setStatus(false, 'Setup needed — see README'); return null; }
-  if(pendingSaves > 0) return null;
+  if(pendingSaves + queuedSaves > 0) return null;
   try{
     // 1) cheap check: just the version numbers
     const r1 = await sb('booknest_data?select=key,version');
@@ -147,7 +152,7 @@ async function syncFromServer(){
       if(!r2.ok) throw new Error('HTTP ' + r2.status);
       fresh = await r2.json();
     }
-    if(pendingSaves > 0) return null;       // a save started while we were fetching
+    if(pendingSaves + queuedSaves > 0) return null;       // an edit was made while we were fetching
     const changed = [];
     fresh.forEach(row => {
       if(row.version > (versions[row.key] || 0)){
@@ -175,6 +180,7 @@ function applyRole(){
   }
   const active = document.querySelector('.tab-btn.active');
   if(!isStaff && active && active.classList.contains('staff-only')) goTab('overview');
+  renderSeatHelp();
   renderAll();
 }
 
@@ -182,6 +188,7 @@ function staffSignedOut(message){
   isStaff = false;
   staffPass = '';
   storeSet('');
+  adReset();
   KEYS.forEach(k => { versions[k] = 0; });   // reload everything as a visitor
   applyRole();
   syncFromServer();
@@ -201,6 +208,8 @@ function seedEmptyCollections(){
 
 async function loadAll(){
   KEYS.forEach(k => setCollection(k, null));   // show the app instantly with defaults
+  initMemberUI();
+  initAdminUI();
   applyRole();
   if(CONFIGURED){
     const saved = storeGet();
@@ -215,6 +224,7 @@ async function loadAll(){
   }
   const payload = await syncFromServer();
   if(payload && isStaff) seedEmptyCollections();
+  await mbRestore();
   tickSeats();
   setInterval(syncFromServer, 3000);
   document.addEventListener('visibilitychange', () => { if(!document.hidden) syncFromServer(); });
@@ -265,6 +275,7 @@ async function confirmArrival(num){
     try{
       const r = await rpc('confirm_arrival', {p_number: num, p_since: since});
       await syncFromServer();
+      mbRefresh();
       return !!r.ok;
     }catch(e){ return false; }
   }
@@ -273,6 +284,7 @@ async function confirmArrival(num){
   saveSeats();
   logActivity(`${seat.occupant} arrived and took seat ${num}`);
   renderSeats(); populateSeatSelect(); renderOverview();
+  if(CONFIGURED) mbRefresh(); else demoRpc('expire_holds', {}).then(mbRefresh);
   return true;
 }
 function formatCountdown(ms){
@@ -305,6 +317,8 @@ function renderAll(){
   populateSeatSelect();
   renderAttendance();
   renderLostFound();
+  renderMember();
+  renderAdmin();
 }
 
 /* ---------- OVERVIEW ---------- */
@@ -559,8 +573,9 @@ function renderSeats(){
     } else if(s.occupant){
       sub = `<div class="occ">${escapeHtml(s.occupant)}</div>`;
     }
+    const mine = mbUser && s.memberId === mbUser.id && s.occupant ? 'mine' : '';
     return `
-    <div class="seat ${stateClass} ${isQuiet?'quiet':''}" data-seat="${s.number}">
+    <div class="seat ${stateClass} ${isQuiet?'quiet':''} ${mine}" data-seat="${s.number}">
       <div>${s.number}</div>
       ${sub}
     </div>`;
@@ -571,7 +586,7 @@ function renderSeats(){
   [quiet, group].forEach(grid=>{
     grid.querySelectorAll('[data-seat]').forEach(el=>{
       el.addEventListener('click', ()=>{
-        if(!isStaff){ showToast('Ask library staff to reserve a seat'); return; }
+        if(!isStaff){ memberSeatClick(Number(el.dataset.seat)); return; }
         openSeatModal(Number(el.dataset.seat));
       });
     });
@@ -604,6 +619,7 @@ function openSeatModal(num){
       seat.occupant = null;
       seat.since = null;
       seat.reservedUntil = null;
+      seat.memberId = null;
       saveSeats();
       logActivity(`Reservation for seat ${num} (${who}) was cancelled`);
       renderSeats(); populateSeatSelect(); renderOverview();
@@ -624,6 +640,7 @@ function openSeatModal(num){
       const who = seat.occupant;
       seat.occupant = null;
       seat.since = null;
+      seat.memberId = null;
       saveSeats();
       logActivity(`Seat ${num} was freed (${who})`);
       renderSeats(); populateSeatSelect(); renderOverview();
@@ -650,6 +667,7 @@ function openSeatModal(num){
       if(!name){ showToast('Enter a name first'); return; }
       const minutes = Number(document.getElementById('seatDurationInput').value);
       seat.occupant = name;
+      seat.memberId = null;           // seated by staff, not booked by a member
       if(minutes>0){
         seat.reservedUntil = Date.now() + minutes*60000;
         seat.since = null;
@@ -836,10 +854,12 @@ document.getElementById('scanManual').addEventListener('click', ()=>{
 function tickSeats(){
   silentSave = true;
   try{ tickSeatsInner(); } finally{ silentSave = false; }
+  mbTick();
 }
 function tickSeatsInner(){
   const now = Date.now();
   let changed = false;
+  let expiredAny = false;
   let expiredNum = null;
   seats.forEach(s=>{
     if(s.reservedUntil && s.reservedUntil<=now){
@@ -848,7 +868,9 @@ function tickSeatsInner(){
       s.occupant = null;
       s.since = null;
       s.reservedUntil = null;
+      s.memberId = null;
       changed = true;
+      expiredAny = true;
     }
   });
   if(changed){
@@ -856,6 +878,8 @@ function tickSeatsInner(){
     renderOverview();
     populateSeatSelect();
   }
+  // visitors and members can't save, so ask the database to tidy up (it closes member bookings too)
+  if(expiredAny && CONFIGURED && !isStaff) askServerToExpire();
   if(document.getElementById('seats').classList.contains('active')){
     renderSeats();
   }
@@ -867,6 +891,12 @@ function tickSeatsInner(){
     }
     showToast(`Seat ${expiredNum}'s reservation expired — now free`);
   }
+}
+let lastExpireAsk = 0;
+function askServerToExpire(){
+  if(Date.now() - lastExpireAsk < 20000) return;
+  lastExpireAsk = Date.now();
+  rpc('expire_holds', {}).then(() => syncFromServer()).catch(() => {});
 }
 setInterval(tickSeats, 1000);
 
@@ -1040,6 +1070,8 @@ document.getElementById('lfReportBtn').addEventListener('click', async ()=>{
 function goTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('active', s.id===name));
+  if(name==='dashboard') dashOpened();
+  if(name==='admin') adminOpened();
 }
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=> goTab(btn.dataset.tab));
@@ -1082,7 +1114,8 @@ function openFormModal(opts){
   });
   document.getElementById('formModalOverlay').classList.add('open');
   const first = body.querySelector('input:not([type=checkbox])');
-  if(first) setTimeout(()=>first.focus(), 50);
+  // focus the first box, unless the person has already clicked into one
+  if(first) setTimeout(()=>{ if(!body.contains(document.activeElement)) first.focus(); }, 50);
 }
 function closeFormModal(){
   document.getElementById('formModalOverlay').classList.remove('open');
@@ -1173,6 +1206,7 @@ document.getElementById('addNoticeBtn').addEventListener('click', ()=>{
   saveNotices();
   logActivity(`Notice posted: ${title}`);
   renderNotices();
+  renderOverview();
   showToast('Notice posted');
 });
 ['noticeTitle','noticeText'].forEach(id=>{
